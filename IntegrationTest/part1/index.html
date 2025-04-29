@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VideoJS with NPAW Integration</title>
+    <!-- VideoJS CSS -->
+    <link href="https://vjs.zencdn.net/7.20.3/video-js.css" rel="stylesheet" />
+    <style>
+        .video-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="video-container">
+        <video
+            id="my-video"
+            class="video-js vjs-default-skin vjs-big-play-centered"
+            controls
+            preload="auto"
+            width="100%"
+            height="auto"
+            data-setup='{}'
+        >
+            <source src="https://origin.demo.dev.codavel.com/hls/bigbuck/main.m3u8" type="application/x-mpegURL">
+            <p class="vjs-no-js">
+                To view this video please enable JavaScript, and consider upgrading to a
+                web browser that supports HTML5 video
+            </p>
+        </video>
+    </div>
+
+    <!-- VideoJS -->
+    <script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
+    
+    <!-- HLS.js -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    
+    <!-- NPAW Plugin -->
+    <script src="https://artifact.plugin.npaw.com/artifactory/plugins/js/7.2.40/NpawPlugin-nwf.js"></script>
+    <script src="https://artifact.plugin.npaw.com/artifactory/plugins/js/7.2.40/NpawPluginAdapters.js"></script>
+    
+    <script>
+        // Initialize VideoJS player
+        var player = videojs('my-video', {
+            fluid: true,
+            html5: {
+                hls: {
+                    enableLowInitialPlaylist: true,
+                    smoothQualityChange: true,
+                    overrideNative: true
+                }
+            }
+        });
+
+        // Wait for the player to be ready
+        player.ready(function() {
+            // Initialize NPAW Plugin
+            const npawPlugin = new NpawPlugin('powerce', {
+                username: 'test_user',
+                parseHLS: true,
+                parseDASH: true,
+                parseSS: true,
+                debug: true
+            });
+
+            // Register the VideoJS adapter
+            npawPlugin.registerAdapterFromClass(player, NpawPluginAdapters.video.Videojs);
+            //npawPlugin.registerAdapter(player, "https://qa-smartplugin.youbora.com/catalog/v7/js/lib/last-build/samples/adapters-json/video/videojs/7.0.5-videojs-js.json");
+
+            // Initialize the plugin
+            if (typeof npawPlugin.init === 'function') {
+                npawPlugin.init();
+            }
+
+            // Function to log adapter flags
+            function logAdapterFlags() {
+                try {
+                    const adapter = npawPlugin.getAdapter();
+                    if (adapter) {
+                        console.log('Adapter Flags:', {
+                            isStarted: adapter.flags.isStarted,
+                            isJoined: adapter.flags.isJoined,
+                            isPaused: adapter.flags.isPaused,
+                            isSeeking: adapter.flags.isSeeking,
+                            isBuffering: adapter.flags.isBuffering,
+                            isVideoStateBuffering: adapter.flags.isVideoStateBuffering,
+                            isEnded: adapter.flags.isEnded,
+                            isStopped: adapter.flags.isStopped,
+                            lastQuartileSent: adapter.flags.lastQuartileSent
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error logging adapter flags:', error);
+                }
+            }
+
+            // Log adapter flags on key events
+            player.on('play', function() {
+                if (npawPlugin && typeof npawPlugin.start === 'function') {
+                    npawPlugin.start();
+                }
+                logAdapterFlags();
+            });
+            
+            player.on('pause', logAdapterFlags);
+            player.on('seeking', logAdapterFlags);
+            player.on('seeked', logAdapterFlags);
+            player.on('waiting', logAdapterFlags);
+            player.on('playing', logAdapterFlags);
+            player.on('stop', logAdapterFlags);
+            
+            // Log adapter flags periodically during playback
+            player.on('timeupdate', function() {
+                if (Math.floor(player.currentTime()) % 5 === 0) {
+                    logAdapterFlags();
+                }
+            });
+        });
+    </script>
+</body>
+</html> 

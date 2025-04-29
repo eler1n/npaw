@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VideoJS with NPAW Integration</title>
+    <!-- VideoJS CSS -->
+    <link href="https://vjs.zencdn.net/7.20.3/video-js.css" rel="stylesheet" />
+    <style>
+        .video-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .bitrate-control {
+            margin: 20px auto;
+            max-width: 800px;
+            text-align: center;
+        }
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+            margin: 0 10px;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #2196F3;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        /* New styles for the dashboard */
+        .metrics-dashboard {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 15px;
+        }
+        .metric-card {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .metric-title {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        .refresh-indicator {
+            text-align: right;
+            font-size: 12px;
+            color: #666;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="video-container">
+        <video
+            id="my-video"
+            class="video-js vjs-default-skin vjs-big-play-centered"
+            controls
+            preload="auto"
+            width="100%"
+            height="auto"
+            data-setup='{}'
+        >
+            <source src="https://origin.demo.dev.codavel.com/hls/bigbuck/main.m3u8" type="application/x-mpegURL">
+            <p class="vjs-no-js">
+                To view this video please enable JavaScript, and consider upgrading to a
+                web browser that supports HTML5 video
+            </p>
+        </video>
+    </div>
+
+    <div class="bitrate-control">
+        <label>Bitrate Unit:</label>
+        <label class="toggle-switch">
+            <input type="checkbox" id="bitrateToggle">
+            <span class="slider"></span>
+        </label>
+        <span id="bitrateUnit">Mbps</span>
+    </div>
+
+    <!-- New metrics dashboard -->
+    <div class="metrics-dashboard">
+        <h2>Live Playback Metrics</h2>
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-title">Current Bitrate</div>
+                <div class="metric-value" id="currentBitrate">0</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Buffer Health</div>
+                <div class="metric-value" id="bufferHealth">0%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Playback Quality</div>
+                <div class="metric-value" id="playbackQuality">0%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Total Buffering Time</div>
+                <div class="metric-value" id="bufferTime">0s</div>
+            </div>
+        </div>
+        <div class="refresh-indicator" id="lastUpdate"></div>
+    </div>
+
+    <!-- VideoJS -->
+    <script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
+    
+    <!-- HLS.js -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    
+    <!-- NPAW Plugin -->
+    <script src="https://artifact.plugin.npaw.com/artifactory/plugins/js/7.2.40/NpawPlugin-nwf.js"></script>
+    <script src="https://artifact.plugin.npaw.com/artifactory/plugins/js/7.2.40/NpawPluginAdapters.js"></script>
+    
+    <script>
+        // Custom adapter that extends VideoJS adapter to convert bitrate to Mbps
+        class CustomVideojsAdapter extends NpawPluginAdapters.video.Videojs {
+            constructor(player) {
+                super(player);
+                this.useMbps = false; // Default to Mbps
+                this.metrics = {
+                    bufferTime: 0,
+                    bufferHealth: 0,
+                    playbackQuality: 0,
+                    lastBufferingStart: null
+                };
+            }
+        }
+
+        // Override getBitrate method on the prototype
+        CustomVideojsAdapter.prototype.getBitrate = function() {
+            // Get the original bitrate in bits
+            const bitrateInBits = NpawPluginAdapters.video.Videojs.prototype.getBitrate.call(this);
+            // Convert to Mbps if needed
+            return this.useMbps ? bitrateInBits / 1000000 : bitrateInBits;
+        };
+
+        // Initialize VideoJS player
+        var player = videojs('my-video', {
+            fluid: true,
+            html5: {
+                hls: {
+                    enableLowInitialPlaylist: true,
+                    smoothQualityChange: true,
+                    overrideNative: true
+                }
+            }
+        });
+
+        // Wait for the player to be ready
+        player.ready(function() {
+            // Initialize NPAW Plugin
+            const npawPlugin = new NpawPlugin('powerce', {
+                username: 'test_user',
+                parseHLS: true,
+                parseDASH: true,
+                parseSS: true,
+                debug: true
+            });
+
+            // Register the VideoJS adapter with our custom adapter
+            npawPlugin.registerAdapterFromClass(player, CustomVideojsAdapter);
+
+            // Set up bitrate unit toggle
+            const bitrateToggle = document.getElementById('bitrateToggle');
+            const bitrateUnit = document.getElementById('bitrateUnit');
+            const adapter = npawPlugin.getAdapter();
+
+            bitrateToggle.checked = false; // Default to Mbps
+            bitrateToggle.addEventListener('change', function() {
+                adapter.useMbps = this.checked;
+                bitrateUnit.textContent = this.checked ? 'Mbps' : 'bits';
+                console.log('Bitrate unit changed to:', this.checked ? 'Mbps' : 'bits');
+            });
+
+            npawPlugin.setLogLevel(LogLevel.DEBUG);
+
+
+            // Initialize the plugin
+            if (typeof npawPlugin.init === 'function') {
+                npawPlugin.init();
+            }
+
+            // Function to update metrics display
+            function updateMetricsDisplay() {
+                const adapter = npawPlugin.getAdapter();
+                if (!adapter) return;
+
+                try {
+                    // Ensure metrics object exists
+                    if (!adapter.metrics) {
+                        adapter.metrics = {
+                            bufferingTime: 0,
+                            bufferHealth: 0,
+                            playbackQuality: 0,
+                            lastBufferingStart: null
+                        };
+                    }
+
+                    // Update bitrate
+                    const bitrate = adapter.getBitrate();
+                    document.getElementById('currentBitrate').textContent = 
+                        adapter.useMbps ? `${bitrate.toFixed(2)} Mbps` : `${bitrate} bits`;
+
+                    // Update buffer health (simulated)
+                    const bufferHealth = Math.min(100, (player.buffered().end(0) - player.currentTime()) * 10);
+                    document.getElementById('bufferHealth').textContent = `${Math.round(bufferHealth)}%`;
+
+                    // Update playback quality (simulated based on bitrate)
+                    const quality = Math.min(100, (bitrate / (adapter.useMbps ? 5 : 5000000)) * 100);
+                    document.getElementById('playbackQuality').textContent = `${Math.round(quality)}%`;
+
+                    // Update buffering time
+                    document.getElementById('bufferTime').textContent = 
+                        `${Math.round(adapter.metrics.bufferTime || 0)}s`;
+
+                    // Update last refresh time
+                    const now = new Date();
+                    document.getElementById('lastUpdate').textContent = 
+                        `Last updated: ${now.toLocaleTimeString()}`;
+                } catch (error) {
+                    console.error('Error updating metrics:', error);
+                }
+            }
+
+            // Track buffering events
+            player.on('waiting', function() {
+                const adapter = npawPlugin.getAdapter();
+                if (!adapter) return;
+                
+                if (!adapter.metrics) {
+                    adapter.metrics = {
+                        bufferTime: 0,
+                        bufferHealth: 0,
+                        playbackQuality: 0,
+                        lastBufferingStart: null
+                    };
+                }
+                
+                if (!adapter.metrics.lastBufferingStart) {
+                    adapter.metrics.lastBufferingStart = Date.now();
+                }
+            });
+
+            player.on('playing', function() {
+                const adapter = npawPlugin.getAdapter();
+                if (!adapter) return;
+                
+                if (!adapter.metrics) {
+                    adapter.metrics = {
+                        bufferTime: 0,
+                        bufferHealth: 0,
+                        playbackQuality: 0,
+                        lastBufferingStart: null
+                    };
+                }
+                
+                if (adapter.metrics.lastBufferingStart) {
+                    const bufferingDuration = (Date.now() - adapter.metrics.lastBufferingStart) / 1000;
+                    adapter.metrics.bufferTime = (adapter.metrics.bufferTime || 0) + bufferingDuration;
+                    adapter.metrics.lastBufferingStart = null;
+                }
+            });
+
+            // Set up auto-refresh for metrics
+            setInterval(updateMetricsDisplay, 10000); // Refresh every 10 seconds
+
+            // Update metrics on key events
+            player.on('play', function() {
+                if (npawPlugin && typeof npawPlugin.start === 'function') {
+                    npawPlugin.start();
+                }
+                updateMetricsDisplay();
+            });
+            
+            player.on('pause', updateMetricsDisplay);
+            player.on('seeking', updateMetricsDisplay);
+            player.on('seeked', updateMetricsDisplay);
+            player.on('timeupdate', updateMetricsDisplay);
+        });
+    </script>
+</body>
+</html> 

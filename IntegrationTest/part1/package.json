@@ -1,0 +1,12 @@
+{
+  "name": "npaw-videojs-demo",
+  "version": "1.0.0",
+  "description": "NPAW VideoJS Integration Demo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

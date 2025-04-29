@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VideoJS with NPAW Integration</title>
+    <!-- VideoJS CSS -->
+    <link href="https://vjs.zencdn.net/7.20.3/video-js.css" rel="stylesheet" />
+    <style>
+        .video-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .bitrate-control {
+            margin: 20px auto;
+            max-width: 800px;
+            text-align: center;
+        }
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+            margin: 0 10px;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #2196F3;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+    </style>
+</head>
+<body>
+    <div class="video-container">
+        <video
+            id="my-video"
+            class="video-js vjs-default-skin vjs-big-play-centered"
+            controls
+            preload="auto"
+            width="100%"
+            height="auto"
+            data-setup='{}'
+        >
+            <source src="https://origin.demo.dev.codavel.com/hls/bigbuck/main.m3u8" type="application/x-mpegURL">
+            <p class="vjs-no-js">
+                To view this video please enable JavaScript, and consider upgrading to a
+                web browser that supports HTML5 video
+            </p>
+        </video>
+    </div>
+
+    <div class="bitrate-control">
+        <label>Bitrate Unit:</label>
+        <label class="toggle-switch">
+            <input type="checkbox" id="bitrateToggle">
+            <span class="slider"></span>
+        </label>
+        <span id="bitrateUnit">Mbps</span>
+    </div>
+
+    <!-- VideoJS -->
+    <script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
+    
+    <!-- HLS.js -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    
+    <!-- NPAW Plugin -->
+    <script src="https://artifact.plugin.npaw.com/artifactory/plugins/js/7.2.40/NpawPlugin-nwf.js"></script>
+    <script src="https://artifact.plugin.npaw.com/artifactory/plugins/js/7.2.40/NpawPluginAdapters.js"></script>
+    
+    <script>
+        // Custom adapter that extends VideoJS adapter to convert bitrate to Mbps
+        class CustomVideojsAdapter extends NpawPluginAdapters.video.Videojs {
+            constructor(player) {
+                super(player);
+                this.useMbps = false; // Default to Mbps
+            }
+        }
+
+        // Override getBitrate method on the prototype
+        CustomVideojsAdapter.prototype.getBitrate = function() {
+            // Get the original bitrate in bits
+            const bitrateInBits = NpawPluginAdapters.video.Videojs.prototype.getBitrate.call(this);
+            // Convert to Mbps if needed
+            return this.useMbps ? bitrateInBits / 1000000 : bitrateInBits;
+        };
+
+        // Initialize VideoJS player
+        var player = videojs('my-video', {
+            fluid: true,
+            html5: {
+                hls: {
+                    enableLowInitialPlaylist: true,
+                    smoothQualityChange: true,
+                    overrideNative: true
+                }
+            }
+        });
+
+        // Wait for the player to be ready
+        player.ready(function() {
+            // Initialize NPAW Plugin
+            const npawPlugin = new NpawPlugin('powerce', {
+                username: 'test_user',
+                parseHLS: true,
+                parseDASH: true,
+                parseSS: true,
+                debug: true
+            });
+
+            // Register the VideoJS adapter with our custom adapter
+            npawPlugin.registerAdapterFromClass(player, CustomVideojsAdapter);
+
+            // Set up bitrate unit toggle
+            const bitrateToggle = document.getElementById('bitrateToggle');
+            const bitrateUnit = document.getElementById('bitrateUnit');
+            const adapter = npawPlugin.getAdapter();
+
+            bitrateToggle.checked = false; // Default to Mbps
+            bitrateToggle.addEventListener('change', function() {
+                adapter.useMbps = this.checked;
+                bitrateUnit.textContent = this.checked ? 'Mbps' : 'bits';
+                console.log('Bitrate unit changed to:', this.checked ? 'Mbps' : 'bits');
+            });
+
+            npawPlugin.setLogLevel(LogLevel.DEBUG);
+
+            // Initialize the plugin
+            if (typeof npawPlugin.init === 'function') {
+                npawPlugin.init();
+            }
+
+            
+
+            // Function to log adapter flags
+            function logAdapterFlags() {
+                try {
+                    const adapter = npawPlugin.getAdapter();
+                    if (adapter) {
+                        console.log('Adapter Flags:', {
+                            isStarted: adapter.flags.isStarted,
+                            isJoined: adapter.flags.isJoined,
+                            isPaused: adapter.flags.isPaused,
+                            isSeeking: adapter.flags.isSeeking,
+                            isBuffering: adapter.flags.isBuffering,
+                            isVideoStateBuffering: adapter.flags.isVideoStateBuffering,
+                            isEnded: adapter.flags.isEnded,
+                            isStopped: adapter.flags.isStopped,
+                            lastQuartileSent: adapter.flags.lastQuartileSent
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error logging adapter flags:', error);
+                }
+            }
+
+            // Log adapter flags on key events
+            player.on('play', function() {
+                if (npawPlugin && typeof npawPlugin.start === 'function') {
+                    npawPlugin.start();
+                }
+                logAdapterFlags();
+            });
+            
+            player.on('pause', logAdapterFlags);
+            player.on('seeking', logAdapterFlags);
+            player.on('seeked', logAdapterFlags);
+            player.on('waiting', logAdapterFlags);
+            player.on('playing', logAdapterFlags);
+            player.on('stop', logAdapterFlags);
+            
+            // Log adapter flags periodically during playback
+            player.on('timeupdate', function() {
+                if (Math.floor(player.currentTime()) % 5 === 0) {
+                    logAdapterFlags();
+                }
+            });
+        });
+    </script>
+</body>
+</html> 

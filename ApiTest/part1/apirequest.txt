@@ -1,0 +1,1 @@
+https://api.npaw.com/powerce/data?fromDate=2025-04-26+10%3A13%3A45&toDate=2025-04-26+16%3A13%3A45&metrics=plays&dimensions=ip&granularity=minute&dateToken=1777220025421&token=31763ef58d829143f300a52247ddeecd
