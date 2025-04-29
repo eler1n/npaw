@@ -144,6 +144,26 @@
                 <div class="metric-title">Total Buffering Time</div>
                 <div class="metric-value" id="bufferTime">0s</div>
             </div>
+            <div class="metric-card">
+                <div class="metric-title">Play Time</div>
+                <div class="metric-value" id="playTime">0s</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Dropped Frames</div>
+                <div class="metric-value" id="droppedFrames">0</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Buffer Level</div>
+                <div class="metric-value" id="bufferLevel">0s</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Video Resolution</div>
+                <div class="metric-value" id="videoResolution">0x0</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Total Errors</div>
+                <div class="metric-value" id="totalErrors">0</div>
+            </div>
         </div>
         <div class="refresh-indicator" id="lastUpdate"></div>
     </div>
@@ -233,32 +253,54 @@
                 if (!adapter) return;
 
                 try {
-                    // Ensure metrics object exists
-                    if (!adapter.metrics) {
-                        adapter.metrics = {
-                            bufferingTime: 0,
-                            bufferHealth: 0,
-                            playbackQuality: 0,
-                            lastBufferingStart: null
-                        };
-                    }
-
-                    // Update bitrate
+                    // Get current metrics
                     const bitrate = adapter.getBitrate();
+                    const bufferHealth = Math.min(100, (player.buffered().end(0) - player.currentTime()) * 10);
+                    const quality = Math.min(100, (bitrate / (adapter.useMbps ? 5 : 5000000)) * 100);
+                    
+                    // Get additional metrics
+                    const playTime = player.currentTime();
+                    const droppedFrames = player.stats?.droppedFrames || 0;
+                    const bufferLevel = player.buffered().end(0) - player.currentTime();
+                    const videoWidth = player.videoWidth();
+                    const videoHeight = player.videoHeight();
+                    const totalErrors = adapter.getTotalErrors ? adapter.getTotalErrors() : 0;
+                    
+                    // Update display
                     document.getElementById('currentBitrate').textContent = 
                         adapter.useMbps ? `${bitrate.toFixed(2)} Mbps` : `${bitrate} bits`;
-
-                    // Update buffer health (simulated)
-                    const bufferHealth = Math.min(100, (player.buffered().end(0) - player.currentTime()) * 10);
                     document.getElementById('bufferHealth').textContent = `${Math.round(bufferHealth)}%`;
-
-                    // Update playback quality (simulated based on bitrate)
-                    const quality = Math.min(100, (bitrate / (adapter.useMbps ? 5 : 5000000)) * 100);
                     document.getElementById('playbackQuality').textContent = `${Math.round(quality)}%`;
+                    
+                    // Format buffer time display
+                    const bufferTimeMs = Math.round((adapter.metrics?.bufferTime || 0) * 1000);
+                    const bufferTimeDisplay = bufferTimeMs >= 1000 
+                        ? `${(bufferTimeMs / 1000).toFixed(1)}s` 
+                        : `${bufferTimeMs}ms`;
+                    document.getElementById('bufferTime').textContent = bufferTimeDisplay;
+                    
+                    // Update additional metrics display
+                    document.getElementById('playTime').textContent = `${Math.round(playTime)}s`;
+                    document.getElementById('droppedFrames').textContent = droppedFrames;
+                    document.getElementById('bufferLevel').textContent = `${bufferLevel.toFixed(1)}s`;
+                    document.getElementById('videoResolution').textContent = `${videoWidth}x${videoHeight}`;
+                    document.getElementById('totalErrors').textContent = totalErrors;
 
-                    // Update buffering time
-                    document.getElementById('bufferTime').textContent = 
-                        `${Math.round(adapter.metrics.bufferTime || 0)}s`;
+                    // Send metrics to NPAW
+                    const metrics = {
+                        "bitrate": adapter.useMbps ? bitrate : bitrate / 1000000, // Convert to Mbps if needed
+                        "bufferHealth": bufferHealth,
+                        "playbackQuality": quality,
+                        "bufferTime": bufferTimeMs, // Keep in milliseconds for NPAW
+                        "playTime": playTime,
+                        "droppedFrames": droppedFrames,
+                        "bufferLevel": bufferLevel,
+                        "videoWidth": videoWidth,
+                        "videoHeight": videoHeight,
+                        "totalErrors": totalErrors
+                    };
+                    
+                    npawPlugin.appAnalytics.fireEvent("playback_metrics", { metrics: metrics });
 
                     // Update last refresh time
                     const now = new Date();
@@ -277,14 +319,14 @@
                 if (!adapter.metrics) {
                     adapter.metrics = {
                         bufferTime: 0,
-                        bufferHealth: 0,
-                        playbackQuality: 0,
                         lastBufferingStart: null
                     };
                 }
                 
                 if (!adapter.metrics.lastBufferingStart) {
                     adapter.metrics.lastBufferingStart = Date.now();
+                    // Send buffering start event
+                    npawPlugin.appAnalytics.fireEvent("buffering_start");
                 }
             });
 
@@ -292,19 +334,14 @@
                 const adapter = npawPlugin.getAdapter();
                 if (!adapter) return;
                 
-                if (!adapter.metrics) {
-                    adapter.metrics = {
-                        bufferTime: 0,
-                        bufferHealth: 0,
-                        playbackQuality: 0,
-                        lastBufferingStart: null
-                    };
-                }
-                
-                if (adapter.metrics.lastBufferingStart) {
-                    const bufferingDuration = (Date.now() - adapter.metrics.lastBufferingStart) / 1000;
-                    adapter.metrics.bufferTime = (adapter.metrics.bufferTime || 0) + bufferingDuration;
+                if (adapter.metrics?.lastBufferingStart) {
+                    const bufferingDuration = Date.now() - adapter.metrics.lastBufferingStart; // Keep in milliseconds
+                    adapter.metrics.bufferTime = (adapter.metrics.bufferTime || 0) + (bufferingDuration / 1000); // Store in seconds for consistency
                     adapter.metrics.lastBufferingStart = null;
+                    // Send buffering end event with duration in milliseconds
+                    npawPlugin.appAnalytics.fireEvent("buffering_end", { 
+                        metrics: { "duration": bufferingDuration }
+                    });
                 }
             });
 
@@ -317,11 +354,28 @@
                     npawPlugin.start();
                 }
                 updateMetricsDisplay();
+                // Send play event
+                npawPlugin.appAnalytics.fireEvent("play");
             });
             
-            player.on('pause', updateMetricsDisplay);
-            player.on('seeking', updateMetricsDisplay);
-            player.on('seeked', updateMetricsDisplay);
+            player.on('pause', function() {
+                updateMetricsDisplay();
+                // Send pause event
+                npawPlugin.appAnalytics.fireEvent("pause");
+            });
+            
+            player.on('seeking', function() {
+                updateMetricsDisplay();
+                // Send seeking event
+                npawPlugin.appAnalytics.fireEvent("seeking");
+            });
+            
+            player.on('seeked', function() {
+                updateMetricsDisplay();
+                // Send seeked event
+                npawPlugin.appAnalytics.fireEvent("seeked");
+            });
+            
             player.on('timeupdate', updateMetricsDisplay);
         });
     </script>
